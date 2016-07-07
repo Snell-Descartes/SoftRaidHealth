@@ -176,7 +176,7 @@ class Device(object):
     def get_smart_attributes(self):
         attributes_regex = re.compile(r"(RAW_VALUE\n[\]{1, 3}[0 - 9]{1, 3}.*.(SMART Error))", re.DOTALL)
         for attributes in attributes_regex.finditer(self.get_smart_output()):
-        return attributes.group(0).split(':')[1].replace('RAW_VALUE\n','').replace('SMART Error','').strip()
+            return attributes.group(0).split(':')[1].replace('RAW_VALUE\n','').replace('SMART Error','').strip()
         #return "1 Raw_Read_Error_Rate 0x002f 200 200 051 Pre-fail Always - 0\n3 Spin_Up_Time 0x0027 178 177 021 Pre-fail Always - 6091\n4 Start_Stop_Count 0x0032 100 100 000 Old_age Always - 56\n5 Reallocated_Sector_Ct 0x0033 200 200 140 Pre-fail Always - 0\n7 Seek_Error_Rate 0x002e 200 200 000 Old_age Always - 0\n9 Power_On_Hours 0x0032 092 092 000 Old_age Always - 5863\n10 Spin_Retry_Count 0x0032 100 253 000 Old_age Always - 0\n11 Calibration_Retry_Count 0x0032 100 253 000 Old_age Always - 0\n12 Power_Cycle_Count 0x0032 100 100 000 Old_age Always - 51\n192 Power-Off_Retract_Count 0x0032 200 200 000 Old_age Always - 50\n193 Load_Cycle_Count 0x0032 197 197 000 Old_age Always - 11001\n194 Temperature_Celsius 0x0022 114 106 000 Old_age Always - 36\n196 Reallocated_Event_Count 0x0032 200 200 000 Old_age Always - 0\n197 Current_Pending_Sector 0x0032 200 200 000 Old_age Always - 0\n198 Offline_Uncorrectable 0x0030 200 200 000 Old_age Offline - 0\n199 UDMA_CRC_Error_Count 0x0032 200 192 000 Old_age Always - 1278\n200 Multi_Zone_Error_Rate 0x0008 200 200 000 Old_age Offline - 0"
 
     def smart_attributes(self):
