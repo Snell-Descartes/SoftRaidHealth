@@ -116,7 +116,7 @@ class Device(object):
 
     smart_output = None
     id = None
-    smart_attributes = None
+    smart_attributes = []
 
     def __init__(self, string, timeid):
         self.timeid = timeid
@@ -129,6 +129,7 @@ class Device(object):
         self.firmware = self.set_firmware()
         self.status = self.set_status()
         self.health = self.set_health()
+        #self.smart_attributes = self.set_smart_attributes()
 
     def set_name(self, string):
         id_regex = re.compile(r"\[[0-9]\]{1,3}", re.IGNORECASE)
@@ -173,31 +174,21 @@ class Device(object):
             self.smart_output = subprocess.Popen(["smartctl", "-a", "/dev/%s" % self.sd_name], stdout=subprocess.PIPE).communicate()[0]
             return self.smart_output
 
-    def get_smart_attributes(self):
+    def get_all_smart_attributes(self):
         attributes_regex = re.compile(r"(RAW_VALUE\n[\]{1, 3}[0 - 9]{1, 3}.*.(SMART Error))", re.DOTALL)
         for attributes in attributes_regex.finditer(self.get_smart_output()):
             return attributes.group(0).split(':')[1].replace('RAW_VALUE\n','').replace('SMART Error','').strip()
         #return "1 Raw_Read_Error_Rate 0x002f 200 200 051 Pre-fail Always - 0\n3 Spin_Up_Time 0x0027 178 177 021 Pre-fail Always - 6091\n4 Start_Stop_Count 0x0032 100 100 000 Old_age Always - 56\n5 Reallocated_Sector_Ct 0x0033 200 200 140 Pre-fail Always - 0\n7 Seek_Error_Rate 0x002e 200 200 000 Old_age Always - 0\n9 Power_On_Hours 0x0032 092 092 000 Old_age Always - 5863\n10 Spin_Retry_Count 0x0032 100 253 000 Old_age Always - 0\n11 Calibration_Retry_Count 0x0032 100 253 000 Old_age Always - 0\n12 Power_Cycle_Count 0x0032 100 100 000 Old_age Always - 51\n192 Power-Off_Retract_Count 0x0032 200 200 000 Old_age Always - 50\n193 Load_Cycle_Count 0x0032 197 197 000 Old_age Always - 11001\n194 Temperature_Celsius 0x0022 114 106 000 Old_age Always - 36\n196 Reallocated_Event_Count 0x0032 200 200 000 Old_age Always - 0\n197 Current_Pending_Sector 0x0032 200 200 000 Old_age Always - 0\n198 Offline_Uncorrectable 0x0030 200 200 000 Old_age Offline - 0\n199 UDMA_CRC_Error_Count 0x0032 200 192 000 Old_age Always - 1278\n200 Multi_Zone_Error_Rate 0x0008 200 200 000 Old_age Offline - 0"
 
-    def smart_attributes(self):
-        line_regex = re.compile(r"[0-9].*", re.MULTILINE)
-        attributes = []
-        for line in line_regex.finditer(self.get_smart_attributes()):
-            attributes.append(SmartAttribute(line.group(0)))
-        return attributes
-
-    # def smart_attributes(self):
-    #     line_regex = re.compile(r"[0-9].*", re.MULTILINE)
-    #     attributes = {}
-    #     for lines in line_regex.finditer(self.get_smart_attributes()):
-    #         data = lines.split(' ')
-    #         attributes[data[0]] = [data[1], data[10]]
-    #     return attributes
-
-    # def yo
-    #     smart_attributes = []
-    #     for attribute in self.smart_attributes():
-    #         smart_attributes
+    def get_smart_attributes(self):
+        if self.smart_attributes:
+            return self.smart_attributes
+        else:
+            self.smart_attributes = []
+            line_regex = re.compile(r"[0-9].*", re.MULTILINE)
+            for line in line_regex.finditer(self.get_all_smart_attributes()):
+                self.smart_attributes.append(SmartAttribute(line.group(0)))
+            return self.smart_attributes
 
     def save(self, conn, parent_id):
         cur = conn.cursor()
@@ -214,7 +205,7 @@ class Device(object):
         finally:
             cur.close()
 
-        for attribute in self.smart_attributes():
+        for attribute in self.get_smart_attributes():
             attribute.save(conn, self.id)
 
         return self.id
@@ -337,5 +328,7 @@ if __name__ == '__main__':
             print '    %s'%device.model
             print '    %s'%device.serial
             print '    %s'%device.firmware
+            for attribute in device.get_smart_attributes():
+                print '      %s: %s'%(attribute.str_name, attribute.value)
 
     system.save(conn)
