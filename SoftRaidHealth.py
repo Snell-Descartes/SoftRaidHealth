@@ -39,6 +39,12 @@ class System(object):
                 md_devices.append(md)
         return md_devices
 
+#    def set_md_devices(self):
+#        md_devices = []
+#        md = MdDevice('md1', self.timeid)
+#        md_devices.append(md)
+#        return md_devices
+
     def save(self, conn):
         cur = conn.cursor()
         try:
@@ -171,23 +177,17 @@ class Device(object):
         if self.smart_output:
             return self.smart_output
         else:
-            self.smart_output = subprocess.Popen(["smartctl", "-a", "/dev/%s" % self.sd_name], stdout=subprocess.PIPE).communicate()[0]
+            self.smart_output = subprocess.Popen(["smartctl", "-iA", "/dev/%s" % self.sd_name], stdout=subprocess.PIPE).communicate()[0]
             return self.smart_output
-
-    def get_all_smart_attributes(self):
-        attributes_regex = re.compile(r"(RAW_VALUE\n[\]{1, 3}[0 - 9]{1, 3}.*.(SMART Error))", re.DOTALL)
-        for attributes in attributes_regex.finditer(self.get_smart_output()):
-            return attributes.group(0).split(':')[1].replace('RAW_VALUE\n','').replace('SMART Error','').strip()
-        #return "1 Raw_Read_Error_Rate 0x002f 200 200 051 Pre-fail Always - 0\n3 Spin_Up_Time 0x0027 178 177 021 Pre-fail Always - 6091\n4 Start_Stop_Count 0x0032 100 100 000 Old_age Always - 56\n5 Reallocated_Sector_Ct 0x0033 200 200 140 Pre-fail Always - 0\n7 Seek_Error_Rate 0x002e 200 200 000 Old_age Always - 0\n9 Power_On_Hours 0x0032 092 092 000 Old_age Always - 5863\n10 Spin_Retry_Count 0x0032 100 253 000 Old_age Always - 0\n11 Calibration_Retry_Count 0x0032 100 253 000 Old_age Always - 0\n12 Power_Cycle_Count 0x0032 100 100 000 Old_age Always - 51\n192 Power-Off_Retract_Count 0x0032 200 200 000 Old_age Always - 50\n193 Load_Cycle_Count 0x0032 197 197 000 Old_age Always - 11001\n194 Temperature_Celsius 0x0022 114 106 000 Old_age Always - 36\n196 Reallocated_Event_Count 0x0032 200 200 000 Old_age Always - 0\n197 Current_Pending_Sector 0x0032 200 200 000 Old_age Always - 0\n198 Offline_Uncorrectable 0x0030 200 200 000 Old_age Offline - 0\n199 UDMA_CRC_Error_Count 0x0032 200 192 000 Old_age Always - 1278\n200 Multi_Zone_Error_Rate 0x0008 200 200 000 Old_age Offline - 0"
 
     def get_smart_attributes(self):
         if self.smart_attributes:
             return self.smart_attributes
         else:
             self.smart_attributes = []
-            line_regex = re.compile(r"[0-9].*", re.MULTILINE)
-            for line in line_regex.finditer(self.get_all_smart_attributes()):
-                self.smart_attributes.append(SmartAttribute(line.group(0)))
+            attributes_regex = re.compile(r"^[\s]{0,3}[0-9]{1,3}.*[\n]", re.MULTILINE)
+            for attribute_line in attributes_regex.finditer(self.get_smart_output()):
+                self.smart_attributes.append(SmartAttribute(attribute_line.group(0).strip()))
             return self.smart_attributes
 
     def save(self, conn, parent_id):
@@ -221,13 +221,13 @@ class SmartAttribute(object):
         self.value = self.set_value(string)
 
     def set_int_name(self, string):
-        return string.split(' ')[0]
+        return string.split()[0]
 
     def set_str_name(self, string):
-        return string.split(' ')[1]
+        return string.split()[1]
 
     def set_value(self, string):
-        return string.split(' ')[9]
+        return string.split()[9]
 
     def save(self, conn, parent_id):
         cur = conn.cursor()
@@ -305,10 +305,15 @@ if __name__ == '__main__':
 
     db_filename = WORKDIR + sys.argv[1] + '.db' if len(sys.argv) > 1 else 'RaidCheck-%s-%s.db' % (HOSTNAME, EXEC_TIME,)
 
-    # if len(sys.argv) == 3 and sys.argv[2] == 'export':
-    #     export = True
-    # else:
-    #     export = False
+    #if len(sys.argv) == 3 and sys.argv[2] == 'export':
+    #    export = True
+    #else:
+    #    export = False
+
+
+#    dev = Device('sde1', '200')
+#    for attribute in dev.get_smart_attributes():
+#        print '      %s: %s'%(attribute.str_name, attribute.value)
 
     reset = False
     if not os.path.isfile(db_filename):
