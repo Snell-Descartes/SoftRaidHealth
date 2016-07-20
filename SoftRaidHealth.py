@@ -17,13 +17,16 @@ EMAIL_SMTP = "SMTP.DOMAIN.COM"
 EMAIL_TO = "ME@DOMAIN.COM"
 EMAIL_SUBJECT = "%s RAID Health : %s at %s"%(HOSTNAME, 'status', EXEC_TIME)
 EMAIL_FROM = HOSTNAME
+ERROR_LEVEL = {0: 'OK', 1: 'Warning', 2: 'Problem', 3: 'Degraded', 4: 'Failure'}
+STATUS_LEVEL = {0: 'OK', 1: 'Warning', 2: 'Problem', 3: 'Degraded', 4: 'Failure'}
 
 
 class System(object):
 
     id = None
 
-    def __init__(self, hostname, timeid):
+    def __init__(self, hostname, timeid, conn):
+        self.conn = conn
         self.timeid = timeid
         self.hostname = hostname
         self.status = None
@@ -35,7 +38,7 @@ class System(object):
         md_devices = []
         if md_regex.finditer(mdstat):
             for md_string in md_regex.finditer(mdstat):
-                md = MdDevice(md_string.group(0), self.timeid)
+                md = MdDevice(md_string.group(0), self.timeid, self.conn)
                 md_devices.append(md)
         return md_devices
 
@@ -45,8 +48,8 @@ class System(object):
 #        md_devices.append(md)
 #        return md_devices
 
-    def save(self, conn):
-        cur = conn.cursor()
+    def save(self):
+        cur = self.conn.cursor()
         try:
             cur.execute('select rowid from systems WHERE hostname = ? and timeid = ?', (self.hostname, EXEC_TIME))
             rowid = cur.fetchone()
@@ -60,19 +63,22 @@ class System(object):
             cur.close()
 
         for md_dev in self.md_devices:
-            md_dev.save(conn, self.id)
+            md_dev.save(self.id)
 
         return self.id
 
 class MdDevice(object):
 
     id = None
+    health = None
+    devices = None
 
-    def __init__(self, string, timeid):
+    def __init__(self, string, timeid, conn):
+        self.conn = conn
         self.timeid = timeid
         self.string = string
         self.name = self.set_name(string)
-        self.health = self.set_health()
+        self.health = self.set_health(string)
         self.status = self.set_status()
         self.level = self.set_level()
         self.devices = self.set_devices(string)
@@ -82,24 +88,34 @@ class MdDevice(object):
         for id in id_regex.finditer(string):
             return id.group(0)
 
-    def set_health(self):
-        return None
+    def set_health(self, string):
+        if self.health:
+            return self.health
+        else:
+            health = ERROR_LEVEL[0]
+            for device in self.set_devices(string):
+                if device.health > health:
+                   health = device.health
+            return health
 
     def set_status(self):
-        return None
+        return 0
 
     def set_level(self):
-        return None
+        return 0
 
     def set_devices(self, string):
-        dev_regex = re.compile(r"sd[a-z]{1,2}[0-9]{1,2}\[[0-9{1-2}]\]", re.IGNORECASE)
-        sd_dev = []
-        for sd_string in dev_regex.finditer(string):
-            sd_dev.append(Device(sd_string.group(0), self.timeid))
-        return sd_dev
+        if self.devices:
+            return self.devices
+        else:
+            dev_regex = re.compile(r"sd[a-z]{1,2}[0-9]{1,2}\[[0-9{1-2}]\]", re.IGNORECASE)
+            sd_dev = []
+            for sd_string in dev_regex.finditer(string):
+                sd_dev.append(Device(sd_string.group(0), self.timeid, self.conn))
+            return sd_dev
 
-    def save(self, conn, parent_id):
-        cur = conn.cursor()
+    def save(self, parent_id):
+        cur = self.conn.cursor()
         try:
             cur.execute('select rowid from md_devices WHERE system_id = ? and name = ?', (parent_id, self.name))
             rowid = cur.fetchone()
@@ -114,7 +130,7 @@ class MdDevice(object):
             cur.close()
 
         for sd_dev in self.devices:
-            sd_dev.save(conn, self.id)
+            sd_dev.save(self.id)
 
         return self.id
 
@@ -124,7 +140,8 @@ class Device(object):
     id = None
     smart_attributes = []
 
-    def __init__(self, string, timeid):
+    def __init__(self, string, timeid, conn):
+        self.conn = conn
         self.timeid = timeid
         self.string = string
         self.name = self.set_name(string)
@@ -135,7 +152,6 @@ class Device(object):
         self.firmware = self.set_firmware()
         self.status = self.set_status()
         self.health = self.set_health()
-        #self.smart_attributes = self.set_smart_attributes()
 
     def set_name(self, string):
         id_regex = re.compile(r"\[[0-9]\]{1,3}", re.IGNORECASE)
@@ -168,10 +184,10 @@ class Device(object):
             return firmware.group(0).split(':')[1].strip()
 
     def set_status(self):
-        return None
+        return 0
 
     def set_health(self):
-        return None
+        return 0
 
     def get_smart_output(self):
         if self.smart_output:
@@ -187,11 +203,11 @@ class Device(object):
             self.smart_attributes = []
             attributes_regex = re.compile(r"^[\s]{0,3}[0-9]{1,3}.*[\n]", re.MULTILINE)
             for attribute_line in attributes_regex.finditer(self.get_smart_output()):
-                self.smart_attributes.append(SmartAttribute(attribute_line.group(0).strip()))
+                self.smart_attributes.append(SmartAttribute(attribute_line.group(0).strip(), self.conn))
             return self.smart_attributes
 
-    def save(self, conn, parent_id):
-        cur = conn.cursor()
+    def save(self, parent_id):
+        cur = self.conn.cursor()
         try:
             cur.execute('select rowid from sd_devices WHERE md_device_id = ? and name = ?', (parent_id, self.name))
             rowid = cur.fetchone()
@@ -206,31 +222,69 @@ class Device(object):
             cur.close()
 
         for attribute in self.get_smart_attributes():
-            attribute.save(conn, self.id)
+            attribute.save(self.id)
 
         return self.id
 
 class SmartAttribute(object):
 
     id = None
+    int_name = None
+    str_name = None
+    value = None
+    health = None
+    message = None
 
-    def __init__(self, string):
+    def __init__(self, string, conn):
+        self.conn = conn
         self.string = string
         self.int_name = self.set_int_name(string)
         self.str_name = self.set_str_name(string)
         self.value = self.set_value(string)
+        self.health = self.set_health(string)
 
     def set_int_name(self, string):
-        return string.split()[0]
+        if self.int_name:
+            return self.int_name
+        else:
+            return string.split()[0]
 
     def set_str_name(self, string):
-        return string.split()[1]
+        if self.str_name:
+            return self.str_name
+        else:
+            return string.split()[1]
 
     def set_value(self, string):
-        return string.split()[9]
+        if self.value:
+            return self.value
+        else:
+            return string.split()[9]
 
-    def save(self, conn, parent_id):
-        cur = conn.cursor()
+    def get_previous(self, int_name):
+
+        return int_name
+
+    def set_health(self, string):
+        if self.health:
+            return 0
+        else:
+            int = self.set_int_name(string)
+            str = self.set_str_name(string)
+            val = self.set_value(string)
+            if 196 <= int <= 199 and val > 0:
+                prev_val = self.get_previous_value(int)
+                if prev_val == val:
+                    return 0
+                else:
+                    self.message = "Smart Attribute %s - %s : Value %s -> %s" % (str(int), str, str(prev_val), str(val))
+                    if int == 199:
+                        return 1
+                    else:
+                        return 3
+
+    def save(self, parent_id):
+        cur = self.conn.cursor()
         try:
             cur.execute('select rowid from smart_attributes WHERE sd_device_id = ? and int_name = ?', (parent_id, self.int_name))
             rowid = cur.fetchone()
@@ -301,7 +355,6 @@ def setupdb(filename, reset = False):
 
 
 if __name__ == '__main__':
-    system = System(HOSTNAME, EXEC_TIME)
 
     db_filename = WORKDIR + sys.argv[1] + '.db' if len(sys.argv) > 1 else 'RaidCheck-%s-%s.db' % (HOSTNAME, EXEC_TIME,)
 
@@ -324,6 +377,8 @@ if __name__ == '__main__':
 
     conn = setupdb(db_filename, reset)
 
+    system = System(HOSTNAME, EXEC_TIME, conn)
+
     print system.hostname
     for md in system.md_devices:
         #print '########################################'
@@ -336,4 +391,4 @@ if __name__ == '__main__':
             for attribute in device.get_smart_attributes():
                 print '      %s: %s'%(attribute.str_name, attribute.value)
 
-    system.save(conn)
+    system.save()
